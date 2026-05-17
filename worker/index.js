@@ -440,7 +440,7 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
             if (live) return { ...pick, price: live.price, changePercent: live.changePercent };
             return pick;
           });
-          const result = { picks: enriched, date };
+          const result = { picks: enriched, date, source: 'claude', model: MODEL_FAST };
           await kvPut(env, cacheKey, result, TTL_PICKS);
           return resp(result);
         }
@@ -448,7 +448,7 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
         // Fallback: build picks deterministically from top movers when Claude is unavailable
         const fallback = buildPicksFallback(usTop, setTop, hkTop);
         if (fallback.length > 0) {
-          const result = { picks: fallback, date, source: 'fallback' };
+          const result = { picks: fallback, date, source: 'fallback', model: null };
           await kvPut(env, cacheKey, result, TTL_PICKS);
           return resp(result);
         }

@@ -145,6 +145,8 @@ export default function App() {
   const [picks, setPicks] = useState(null)
   const [picksLoading, setPicksLoading] = useState(false)
   const [picksDate, setPicksDate] = useState(null)
+  const [picksSource, setPicksSource] = useState(null)
+  const [picksModel, setPicksModel] = useState(null)
   const [pickPrices, setPickPrices] = useState({}) // { ticker: { price, changePercent } }
 
   useEffect(() => {
@@ -155,6 +157,8 @@ export default function App() {
         if (d.picks && d.picks.length) {
           setPicks(d.picks)
           setPicksDate(d.date)
+          setPicksSource(d.source || null)
+          setPicksModel(d.model || null)
           // Fetch live price for each pick in parallel
           d.picks.forEach(pick => {
             fetch(API + '/api/data', {
@@ -377,6 +381,13 @@ export default function App() {
                       <div>
                         <h2 className="text-sm font-bold text-slate-800">AI Picks Today</h2>
                         {picksDate && <p className="text-[10px] text-slate-400">{picksDate} · 🇺🇸 US · 🇹🇭 SET · 🇭🇰 HKEX</p>}
+                        {picksSource && (
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            via <span className="font-medium text-slate-500">
+                              {picksSource === 'fallback' ? 'Top movers fallback' : (picksModel || 'Claude')}
+                            </span>
+                          </p>
+                        )}
                       </div>
                     </div>
                     {picksLoading && <Loader2 size={14} className="animate-spin text-slate-400" />}
