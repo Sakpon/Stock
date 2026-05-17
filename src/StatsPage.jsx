@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, TrendingUp, RefreshCw, Globe } from 'lucide-react'
-
-const API = 'https://stock-dashboard-api.sakpongun.workers.dev'
+import { API } from './config'
 
 const MARKET_FLAG = { SET: '🇹🇭', HKEX: '🇭🇰', US: '🇺🇸' }
 
