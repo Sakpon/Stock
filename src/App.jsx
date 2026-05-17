@@ -3,6 +3,7 @@ import Dashboard from './Dashboard'
 import PortfolioConsult from './PortfolioConsult'
 import StatsPage from './StatsPage'
 import { Search, Loader2, AlertCircle, BarChart3, Globe, TrendingUp, Shield, Flame, Sparkles, Briefcase, ChevronRight, Zap } from 'lucide-react'
+import { API } from './config'
 
 const QUICK_US = ['AAPL','MSFT','NVDA','GOOGL','TSLA']
 const QUICK_TH = ['PTT','KBANK','DELTA','CPALL','AOT']
@@ -31,8 +32,6 @@ function buildFullTicker(input, marketId) {
   if (marketId === 'HK')  return normalizeHKCode(t) + '.HK'
   return t
 }
-const API = 'https://stock-dashboard-api.sakpongun.workers.dev'
-
 function getMarketInfo(ticker) {
   const t = (ticker || '').toUpperCase()
   if (t.endsWith('.BK')) return { market: 'SET', flag: '🇹🇭', currencySymbol: '฿', label: 'Thailand SET' }

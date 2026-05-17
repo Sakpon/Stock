@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Target, Shield, Clock, Upload, PlusCircle, Trash2, Loader2, Sparkles, AlertTriangle, CheckCircle, Award, PieChart, Star, ArrowRight, Users, Zap } from 'lucide-react'
-
-const API = 'https://stock-dashboard-api.sakpongun.workers.dev'
+import { API } from './config'
 
 const RISK_LABELS = ['Very Safe','Conservative','Mod-Conservative','Moderate','Moderate','Mod-Aggressive','Mod-Aggressive','Aggressive','Very Aggressive','Max Risk']
 const RISK_COLORS = ['#22c55e','#22c55e','#4ade80','#84cc16','#eab308','#f59e0b','#f97316','#ef4444','#dc2626','#991b1b']
