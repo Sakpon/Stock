@@ -10,6 +10,7 @@ const TTL_FUNDAMENTAL = 86400;
 const TTL_SCORE = 14400; // 4hr (was 1hr — reduce repeat scoring calls)
 const TTL_PEERS = 86400;
 const TTL_PICKS = 86400;
+const TTL_WATCH = 86400;
 
 const WEIGHTS = {
   7: { wT: 80, wF: 20 }, 14: { wT: 75, wF: 25 },
@@ -450,6 +451,100 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
         if (fallback.length > 0) {
           const result = { picks: fallback, date, source: 'fallback', model: null };
           await kvPut(env, cacheKey, result, TTL_PICKS);
+          return resp(result);
+        }
+
+        return resp({ picks: [], date: null });
+      } catch (e) { return resp({ picks: [], error: e.message }); }
+    }
+
+    // ─── AI Watchlist: AI-related stocks ranked by P/E + fundamentals ───
+    if (url.pathname === '/api/watchlist' && (request.method === 'GET' || request.method === 'POST')) {
+      try {
+        const cacheKey = 'watchlist:daily';
+        const cached = await kvGet(env, cacheKey);
+        if (cached) return resp(cached);
+
+        // Curated AI-related US tickers (chips, hyperscalers, AI software, infra)
+        const AI_POOL = ['NVDA','GOOGL','MSFT','META','AMD','AVGO','TSM','PLTR','ANET','SMCI','ORCL','CRM','IBM','ADBE','NOW','AMZN','AAPL','SNOW','MDB','CRWD'];
+
+        // Fetch Yahoo quote + FMP ratios in parallel for every ticker
+        const enriched = await Promise.all(AI_POOL.map(async (sym) => {
+          const [yq, ratios, profile] = await Promise.all([
+            withTimeout(fetchFromYahoo(sym), 5000),
+            withTimeout(fmpCall(`/ratios-ttm?symbol=${sym}`, env.FMP_API_KEY), 5000),
+            withTimeout(fmpCall(`/profile?symbol=${sym}`, env.FMP_API_KEY), 5000),
+          ]);
+          const ratio = first(ratios);
+          const prof = first(profile);
+          if (!yq?.price) return null;
+          return {
+            ticker: sym,
+            name: yq.name || prof?.companyName || sym,
+            price: yq.price,
+            changePercent: yq.changePercent,
+            pe: ratio?.priceToEarningsRatioTTM != null ? rnd(ratio.priceToEarningsRatioTTM, 1) : null,
+            roe: ratio?.returnOnEquityTTM != null ? rnd(ratio.returnOnEquityTTM * 100, 1) : null,
+            netMargin: ratio?.netProfitMarginTTM != null ? rnd(ratio.netProfitMarginTTM * 100, 1) : null,
+            deRatio: ratio?.debtEquityRatioTTM != null ? rnd(ratio.debtEquityRatioTTM, 2) : null,
+            sector: prof?.sector || 'Technology',
+            industry: prof?.industry || '',
+          };
+        }));
+
+        const candidates = enriched.filter(Boolean);
+        if (candidates.length === 0) return resp({ picks: [], date: null });
+
+        const date = new Date().toISOString().split('T')[0];
+
+        // Build compact summary for Claude
+        const summary = candidates.map(c =>
+          `${c.ticker} ${c.name} | PE=${c.pe ?? 'n/a'} ROE=${c.roe ?? 'n/a'}% NetMgn=${c.netMargin ?? 'n/a'}% D/E=${c.deRatio ?? 'n/a'} | ${c.industry || c.sector}`
+        ).join('\n');
+
+        const prompt = `Pick exactly 5 AI-related US stocks worth watching, ranked primarily by attractive P/E ratio with reasonable ROE and stable margins. Avoid extreme outliers (PE>80 or negative).
+
+OUTPUT: ONLY a JSON array of exactly 5 objects, no markdown.
+[{"ticker":"","reason":"PE-focused, max 12 words","emoji":"🤖"}]
+
+reason: must reference the P/E specifically (e.g. "PE 22 looks cheap for 30% ROE", "Premium PE 45 but dominant AI moat"). Max 12 words.
+emoji: pick one of 🤖 💻 ⚡ 🧠 ☁️ 🔌
+
+Candidates:
+${summary}`;
+
+        const ranked = await withTimeout(
+          callClaude(env.ANTHROPIC_API_KEY, MODEL_FAST, 'Return ONLY valid JSON array of exactly 5 items. No markdown.', prompt, 500),
+          15000
+        );
+
+        const byTicker = Object.fromEntries(candidates.map(c => [c.ticker, c]));
+
+        if (ranked && Array.isArray(ranked) && ranked.length > 0) {
+          const picks = ranked
+            .map(r => {
+              const c = byTicker[r.ticker];
+              if (!c) return null;
+              return { ...c, reason: r.reason || `PE ${c.pe ?? 'n/a'}`, emoji: r.emoji || '🤖' };
+            })
+            .filter(Boolean);
+          if (picks.length > 0) {
+            const result = { picks, date, source: 'claude', model: MODEL_FAST };
+            await kvPut(env, cacheKey, result, TTL_WATCH);
+            return resp(result);
+          }
+        }
+
+        // Fallback: lowest PE with positive ROE
+        const fallback = candidates
+          .filter(c => c.pe != null && c.pe > 0 && c.pe < 80 && (c.roe == null || c.roe > 0))
+          .sort((a, b) => (a.pe || 999) - (b.pe || 999))
+          .slice(0, 5)
+          .map(c => ({ ...c, reason: `PE ${c.pe} · ROE ${c.roe ?? 'n/a'}%`, emoji: '🤖' }));
+
+        if (fallback.length > 0) {
+          const result = { picks: fallback, date, source: 'fallback', model: null };
+          await kvPut(env, cacheKey, result, TTL_WATCH);
           return resp(result);
         }
 
