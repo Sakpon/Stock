@@ -190,7 +190,9 @@ function WatchStockSection({ onAnalyze }) {
             {source && (
               <p className="text-[10px] text-slate-400 mt-0.5">
                 via <span className="font-medium text-slate-500">
-                  {source === 'fallback' ? 'Lowest-PE fallback' : (model || 'Claude')}
+                  {source === 'fallback' ? 'Lowest-PE fallback'
+                    : source === 'static' ? 'Static AI list (data unavailable)'
+                    : (model || 'Claude')}
                 </span>
               </p>
             )}

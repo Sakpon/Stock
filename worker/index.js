@@ -496,11 +496,11 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
         }));
 
         const candidates = enriched.filter(Boolean);
-        if (candidates.length === 0) return resp({ picks: [], date: null });
-
+        const yahooCount = enriched.filter(e => e !== null).length;
+        const fmpCount = enriched.filter(e => e?.pe != null).length;
         const date = new Date().toISOString().split('T')[0];
 
-        // Build compact summary for Claude
+        // Build compact summary for Claude (only if we actually have candidates)
         const summary = candidates.map(c =>
           `${c.ticker} ${c.name} | PE=${c.pe ?? 'n/a'} NetMgn=${c.netMargin ?? 'n/a'}% D/E=${c.deRatio ?? 'n/a'}`
         ).join('\n');
@@ -516,10 +516,10 @@ emoji: pick one of 🤖 💻 ⚡ 🧠 ☁️ 🔌
 Candidates:
 ${summary}`;
 
-        const ranked = await withTimeout(
+        const ranked = candidates.length > 0 ? await withTimeout(
           callClaude(env.ANTHROPIC_API_KEY, MODEL_FAST, 'Return ONLY valid JSON array of exactly 5 items. No markdown.', prompt, 500),
           15000
-        );
+        ) : null;
 
         const byTicker = Object.fromEntries(candidates.map(c => [c.ticker, c]));
 
@@ -556,13 +556,29 @@ ${summary}`;
         }));
 
         if (fallback.length > 0) {
-          const result = { picks: fallback, date, source: 'fallback', model: null };
+          const result = { picks: fallback, date, source: 'fallback', model: null, _debug: { yahooCount, fmpCount } };
           await kvPut(env, cacheKey, result, TTL_WATCH);
           return resp(result);
         }
 
-        return resp({ picks: [], date: null });
-      } catch (e) { return resp({ picks: [], error: e.message }); }
+        // Last-resort static fallback: Yahoo and FMP both failed. Render something
+        // rather than an empty section so the user gets a clickable starting point.
+        // Don't cache this — we want a fresh attempt next request.
+        const STATIC_AI = [
+          { ticker: 'NVDA', name: 'NVIDIA',          emoji: '🧠', reason: 'AI chip leader · valuation premium' },
+          { ticker: 'MSFT', name: 'Microsoft',       emoji: '☁️', reason: 'Azure AI + Copilot scale' },
+          { ticker: 'GOOGL',name: 'Alphabet',        emoji: '🔌', reason: 'Search + Gemini · AI infra' },
+          { ticker: 'META', name: 'Meta Platforms',  emoji: '🤖', reason: 'Open-source Llama · ad efficiency' },
+          { ticker: 'AMD',  name: 'AMD',             emoji: '⚡', reason: 'AI accelerator challenger' },
+        ];
+        return resp({
+          picks: STATIC_AI.map(s => ({ ...s, price: null, changePercent: null, pe: null, roe: null, netMargin: null, sector: 'Technology' })),
+          date,
+          source: 'static',
+          model: null,
+          _debug: { yahooCount, fmpCount, note: 'Yahoo and FMP both failed; returning static AI list' },
+        });
+      } catch (e) { return resp({ picks: [], error: e.message, stack: e.stack }); }
     }
 
     // ─── Portfolio Consult (enhanced AI + counter + stats) ───
