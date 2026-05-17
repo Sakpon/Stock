@@ -1,0 +1,7 @@
+name = "pokproject-router"
+main = "index.js"
+compatibility_date = "2024-09-01"
+
+[[routes]]
+pattern = "pokproject.com/*"
+zone_name = "pokproject.com"

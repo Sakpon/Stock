@@ -1,0 +1,8 @@
+name = "stock-dashboard-api"
+main = "index.js"
+compatibility_date = "2024-09-01"
+
+# KV cache — will auto-provision on first deploy
+[[kv_namespaces]]
+binding = "CACHE"
+id = "7f5a8a31450e4206aafb184cc1887647"

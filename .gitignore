@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+.wrangler/
+.vite/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+.dev.vars
+*.pem
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# Playwright / test artifacts
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Backup / old files
+*-old.js
+*-old*.jsx
+*-old*.js
+worker-index.js
+{src,worker}/
