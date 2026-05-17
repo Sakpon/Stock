@@ -384,18 +384,20 @@ export default {
         if (cached) return resp(cached);
 
         // Curated blue-chip + momentum stocks per market
+        const US_POOL  = ['AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','AVGO','AMD','NFLX','JPM','V','LLY','UNH','XOM'];
         const SET_POOL = ['PTT.BK','KBANK.BK','SCB.BK','CPALL.BK','DELTA.BK','AOT.BK','BDMS.BK','BBL.BK','GULF.BK','KTB.BK','PTTEP.BK','ADVANC.BK','SCC.BK','BTS.BK','TRUE.BK'];
         const HK_POOL  = ['0700.HK','9988.HK','1211.HK','2318.HK','3690.HK','0005.HK','0941.HK','1024.HK','2628.HK','0388.HK'];
 
-        // Fetch: US gainers (scrape) + SET & HK quotes (Yahoo v8 chart) — all in parallel
-        const [usGainers, usActive, ...intlQuotes] = await Promise.all([
+        // Fetch: US gainers (scrape) + US, SET & HK quotes (Yahoo v8 chart) — all in parallel
+        const [usGainers, usActive, ...allQuotes] = await Promise.all([
           fetchPage('https://stockanalysis.com/markets/gainers/'),
           fetchPage('https://stockanalysis.com/markets/active/'),
-          ...([...SET_POOL, ...HK_POOL].map(sym => withTimeout(fetchFromYahoo(sym), 5000))),
+          ...([...US_POOL, ...SET_POOL, ...HK_POOL].map(sym => withTimeout(fetchFromYahoo(sym), 5000))),
         ]);
 
-        // Sort SET & HK by changePercent, take top 5 each
-        const allIntl = intlQuotes.filter(Boolean);
+        // Sort each market by changePercent, take top movers
+        const allIntl = allQuotes.filter(Boolean);
+        const usTop  = allIntl.filter(q => !q.ticker.endsWith('.BK') && !q.ticker.endsWith('.HK')).sort((a, b) => (b.changePercent||0) - (a.changePercent||0)).slice(0, 5);
         const setTop = allIntl.filter(q => q.ticker.endsWith('.BK')).sort((a, b) => (b.changePercent||0) - (a.changePercent||0)).slice(0, 5);
         const hkTop  = allIntl.filter(q => q.ticker.endsWith('.HK')).sort((a, b) => (b.changePercent||0) - (a.changePercent||0)).slice(0, 5);
 
@@ -429,6 +431,8 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
           18000
         );
 
+        const date = new Date().toISOString().split('T')[0];
+
         if (picks && Array.isArray(picks) && picks.length > 0) {
           // Enrich with real-time price from Yahoo if available
           const enriched = picks.map(pick => {
@@ -436,7 +440,15 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
             if (live) return { ...pick, price: live.price, changePercent: live.changePercent };
             return pick;
           });
-          const result = { picks: enriched, date: new Date().toISOString().split('T')[0] };
+          const result = { picks: enriched, date };
+          await kvPut(env, cacheKey, result, TTL_PICKS);
+          return resp(result);
+        }
+
+        // Fallback: build picks deterministically from top movers when Claude is unavailable
+        const fallback = buildPicksFallback(usTop, setTop, hkTop);
+        if (fallback.length > 0) {
+          const result = { picks: fallback, date, source: 'fallback' };
           await kvPut(env, cacheKey, result, TTL_PICKS);
           return resp(result);
         }
@@ -871,6 +883,34 @@ function getMarketInfo(ticker) {
   if (/\.BK$/i.test(ticker)) return { market: 'SET', currency: 'THB', flag: '🇹🇭', currencySymbol: '฿' };
   if (/\.HK$/i.test(ticker)) return { market: 'HKEX', currency: 'HKD', flag: '🇭🇰', currencySymbol: 'HK$' };
   return { market: 'US', currency: 'USD', flag: '🇺🇸', currencySymbol: '$' };
+}
+
+// Deterministic picks: 2 US + 2 SET + 1 HK top movers, used when Claude is unavailable.
+function buildPicksFallback(usTop, setTop, hkTop) {
+  const toPick = (q) => {
+    const up = (q.changePercent || 0) >= 0;
+    return {
+      ticker: q.ticker,
+      name: q.name,
+      price: q.price,
+      changePercent: q.changePercent,
+      sector: '',
+      market: q.market,
+      flag: q.flag,
+      currencySymbol: q.currencySymbol,
+      risk: 'balanced',
+      riskLevel: 2,
+      reason: up ? 'Top mover today in its market' : 'Notable mover today in its market',
+      emoji: '📈',
+    };
+  };
+  const out = [];
+  if (usTop[0])  out.push(toPick(usTop[0]));
+  if (usTop[1])  out.push(toPick(usTop[1]));
+  if (setTop[0]) out.push(toPick(setTop[0]));
+  if (setTop[1]) out.push(toPick(setTop[1]));
+  if (hkTop[0])  out.push(toPick(hkTop[0]));
+  return out;
 }
 
 // ═══ Yahoo Finance v8 chart API (no crumb needed) ═══
