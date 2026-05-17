@@ -41,3 +41,7 @@ test-results/
 *-old*.js
 worker-index.js
 {src,worker}/
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
