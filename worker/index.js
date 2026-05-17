@@ -468,27 +468,28 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
         // Curated AI-related US tickers (chips, hyperscalers, AI software, infra)
         const AI_POOL = ['NVDA','GOOGL','MSFT','META','AMD','AVGO','TSM','PLTR','ANET','SMCI','ORCL','CRM','IBM','ADBE','NOW','AMZN','AAPL','SNOW','MDB','CRWD'];
 
-        // Fetch Yahoo quote + FMP ratios in parallel for every ticker
+        // Fetch Yahoo quote + FMP ratios + key-metrics in parallel for every ticker.
+        // FMP TTM endpoints split PE/PB/margins (ratios-ttm) from ROE/ROA (key-metrics-ttm).
         const enriched = await Promise.all(AI_POOL.map(async (sym) => {
-          const [yq, ratios, profile] = await Promise.all([
+          const [yq, ratios, metrics] = await Promise.all([
             withTimeout(fetchFromYahoo(sym), 5000),
             withTimeout(fmpCall(`/ratios-ttm?symbol=${sym}`, env.FMP_API_KEY), 5000),
-            withTimeout(fmpCall(`/profile?symbol=${sym}`, env.FMP_API_KEY), 5000),
+            withTimeout(fmpCall(`/key-metrics-ttm?symbol=${sym}`, env.FMP_API_KEY), 5000),
           ]);
           const ratio = first(ratios);
-          const prof = first(profile);
+          const metric = first(metrics);
           if (!yq?.price) return null;
           return {
             ticker: sym,
-            name: yq.name || prof?.companyName || sym,
+            name: yq.name || sym,
             price: yq.price,
             changePercent: yq.changePercent,
             pe: ratio?.priceToEarningsRatioTTM != null ? rnd(ratio.priceToEarningsRatioTTM, 1) : null,
-            roe: ratio?.returnOnEquityTTM != null ? rnd(ratio.returnOnEquityTTM * 100, 1) : null,
+            roe: metric?.returnOnEquityTTM != null ? rnd(metric.returnOnEquityTTM * 100, 1) : null,
             netMargin: ratio?.netProfitMarginTTM != null ? rnd(ratio.netProfitMarginTTM * 100, 1) : null,
             deRatio: ratio?.debtEquityRatioTTM != null ? rnd(ratio.debtEquityRatioTTM, 2) : null,
-            sector: prof?.sector || 'Technology',
-            industry: prof?.industry || '',
+            sector: 'Technology',
+            industry: '',
           };
         }));
 
@@ -535,12 +536,22 @@ ${summary}`;
           }
         }
 
-        // Fallback: lowest PE with positive ROE
-        const fallback = candidates
+        // Fallback ranking: prefer attractive PE when available, but never return empty.
+        // Tier 1: candidates with PE in a healthy range, sorted lowest first.
+        // Tier 2: any remaining candidates with prices, sorted by % change descending.
+        const withPe = candidates
           .filter(c => c.pe != null && c.pe > 0 && c.pe < 80 && (c.roe == null || c.roe > 0))
-          .sort((a, b) => (a.pe || 999) - (b.pe || 999))
-          .slice(0, 5)
-          .map(c => ({ ...c, reason: `PE ${c.pe} · ROE ${c.roe ?? 'n/a'}%`, emoji: '🤖' }));
+          .sort((a, b) => a.pe - b.pe);
+        const withoutPe = candidates
+          .filter(c => !withPe.includes(c))
+          .sort((a, b) => (b.changePercent || 0) - (a.changePercent || 0));
+        const fallback = [...withPe, ...withoutPe].slice(0, 5).map(c => ({
+          ...c,
+          reason: c.pe != null
+            ? `PE ${c.pe}${c.roe != null ? ` · ROE ${c.roe}%` : ''}`
+            : `Top mover today in AI sector`,
+          emoji: '🤖',
+        }));
 
         if (fallback.length > 0) {
           const result = { picks: fallback, date, source: 'fallback', model: null };
