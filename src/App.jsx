@@ -114,6 +114,115 @@ function PickCard({ pick, livePrice, onAnalyze }) {
   )
 }
 
+function WatchCard({ pick, onAnalyze }) {
+  const isUp = (pick.changePercent || 0) >= 0
+  return (
+    <button onClick={() => onAnalyze(pick.ticker)}
+      className="group relative flex flex-col w-full rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-4 text-left transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98]">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-base">{pick.emoji || '🤖'}</span>
+          <span className="text-[10px] font-semibold text-indigo-500 tracking-wide uppercase">AI Sector</span>
+        </div>
+        {pick.pe != null && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+            P/E {pick.pe}
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline gap-2 mb-0.5">
+        <span className="text-lg font-bold text-stone-900 tracking-tight">{pick.ticker}</span>
+        {pick.changePercent != null && (
+          <span className={`text-xs font-bold ${isUp ? 'text-emerald-600' : 'text-rose-500'}`}>
+            {isUp ? '▲' : '▼'} {Math.abs(pick.changePercent).toFixed(1)}%
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] text-stone-400 truncate mb-2">{pick.name}</p>
+      <p className="text-xl font-bold text-stone-800 mb-2">
+        {pick.price != null ? `$${Number(pick.price).toLocaleString()}` : <span className="text-sm text-stone-300">—</span>}
+      </p>
+      <div className="flex items-center gap-2 mb-2 text-[10px] text-stone-500">
+        {pick.roe != null && <span><span className="text-stone-400">ROE</span> <span className="font-semibold text-stone-700">{pick.roe}%</span></span>}
+        {pick.netMargin != null && <span><span className="text-stone-400">Mgn</span> <span className="font-semibold text-stone-700">{pick.netMargin}%</span></span>}
+      </div>
+      <p className="text-[11px] text-indigo-700 font-medium leading-relaxed line-clamp-2 mb-3">{pick.reason}</p>
+      <div className="flex items-center gap-1 mt-auto text-[11px] font-semibold text-slate-500 group-hover:text-slate-700 transition-colors">
+        View Analysis <ChevronRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+      </div>
+    </button>
+  )
+}
+
+function WatchStockSection({ onAnalyze }) {
+  const [list, setList] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [date, setDate] = useState(null)
+  const [source, setSource] = useState(null)
+  const [model, setModel] = useState(null)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(API + '/api/watchlist')
+      .then(r => r.json())
+      .then(d => {
+        if (d.picks && d.picks.length) {
+          setList(d.picks)
+          setDate(d.date)
+          setSource(d.source || null)
+          setModel(d.model || null)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+            <Zap size={14} className="text-indigo-500" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-800">Watch Stock</h2>
+            {date && <p className="text-[10px] text-slate-400">{date} · AI sector · P/E ranked</p>}
+            {source && (
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                via <span className="font-medium text-slate-500">
+                  {source === 'fallback' ? 'Lowest-PE fallback' : (model || 'Claude')}
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+        {loading && <Loader2 size={14} className="animate-spin text-slate-400" />}
+      </div>
+
+      {loading && !list && (
+        <div className="flex gap-3 overflow-hidden">
+          {[1,2,3].map(i => (
+            <div key={i} className="shrink-0 w-[200px] h-[220px] rounded-2xl bg-slate-200 animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {list && list.length > 0 && (
+        <>
+          <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scrollbar-none -mx-4 px-4">
+            {list.map((p, i) => (
+              <div key={i} className="snap-start shrink-0 w-[200px]">
+                <WatchCard pick={p} onAnalyze={onAnalyze} />
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-2 px-1">⚠️ AI-screened watchlist for educational purposes only. Not financial advice.</p>
+        </>
+      )}
+    </div>
+  )
+}
+
 function validateTicker(input, marketId) {
   const t = (input || '').trim().replace(/\.(BK|HK)$/i, '')
   if (!t) return null
@@ -420,6 +529,13 @@ export default function App() {
                     </>
                   )}
                 </div>
+
+                {/* Watch Stock — AI sector, P/E-led */}
+                <WatchStockSection onAnalyze={(t) => {
+                  setSelectedMarket('US')
+                  setTicker(t.replace(/\.(BK|HK)$/i, ''))
+                  analyze(t)
+                }} />
 
                 {/* Divider */}
                 <div className="flex items-center gap-3 mb-5">
