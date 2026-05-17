@@ -465,19 +465,21 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
         const cached = await kvGet(env, cacheKey);
         if (cached) return resp(cached);
 
-        // Curated AI-related US tickers (chips, hyperscalers, AI software, infra)
-        const AI_POOL = ['NVDA','GOOGL','MSFT','META','AMD','AVGO','TSM','PLTR','ANET','SMCI','ORCL','CRM','IBM','ADBE','NOW','AMZN','AAPL','SNOW','MDB','CRWD'];
+        // Curated AI-related US tickers (chips, hyperscalers, AI software, infra).
+        // Pool size capped to keep total subrequests under Cloudflare's 50/req limit on
+        // the free plan: 10 tickers * 2 endpoints (Yahoo + FMP ratios) + 1 Claude = 21.
+        const AI_POOL = ['NVDA','MSFT','GOOGL','META','AMD','AVGO','TSM','PLTR','CRM','AMZN'];
 
-        // Fetch Yahoo quote + FMP ratios + key-metrics in parallel for every ticker.
-        // FMP TTM endpoints split PE/PB/margins (ratios-ttm) from ROE/ROA (key-metrics-ttm).
+        // Fetch Yahoo quote + FMP ratios-ttm in parallel for every ticker.
+        // ratios-ttm gives PE, netMargin, deRatio. ROE comes from a different FMP endpoint
+        // (/key-metrics-ttm) but we skip it here to stay under the subrequest budget; the
+        // ranking still has PE as the primary signal which is what the section promises.
         const enriched = await Promise.all(AI_POOL.map(async (sym) => {
-          const [yq, ratios, metrics] = await Promise.all([
+          const [yq, ratios] = await Promise.all([
             withTimeout(fetchFromYahoo(sym), 5000),
             withTimeout(fmpCall(`/ratios-ttm?symbol=${sym}`, env.FMP_API_KEY), 5000),
-            withTimeout(fmpCall(`/key-metrics-ttm?symbol=${sym}`, env.FMP_API_KEY), 5000),
           ]);
           const ratio = first(ratios);
-          const metric = first(metrics);
           if (!yq?.price) return null;
           return {
             ticker: sym,
@@ -485,7 +487,7 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
             price: yq.price,
             changePercent: yq.changePercent,
             pe: ratio?.priceToEarningsRatioTTM != null ? rnd(ratio.priceToEarningsRatioTTM, 1) : null,
-            roe: metric?.returnOnEquityTTM != null ? rnd(metric.returnOnEquityTTM * 100, 1) : null,
+            roe: null,
             netMargin: ratio?.netProfitMarginTTM != null ? rnd(ratio.netProfitMarginTTM * 100, 1) : null,
             deRatio: ratio?.debtEquityRatioTTM != null ? rnd(ratio.debtEquityRatioTTM, 2) : null,
             sector: 'Technology',
@@ -500,10 +502,10 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
 
         // Build compact summary for Claude
         const summary = candidates.map(c =>
-          `${c.ticker} ${c.name} | PE=${c.pe ?? 'n/a'} ROE=${c.roe ?? 'n/a'}% NetMgn=${c.netMargin ?? 'n/a'}% D/E=${c.deRatio ?? 'n/a'} | ${c.industry || c.sector}`
+          `${c.ticker} ${c.name} | PE=${c.pe ?? 'n/a'} NetMgn=${c.netMargin ?? 'n/a'}% D/E=${c.deRatio ?? 'n/a'}`
         ).join('\n');
 
-        const prompt = `Pick exactly 5 AI-related US stocks worth watching, ranked primarily by attractive P/E ratio with reasonable ROE and stable margins. Avoid extreme outliers (PE>80 or negative).
+        const prompt = `Pick exactly 5 AI-related US stocks worth watching, ranked primarily by attractive P/E ratio with stable margins. Avoid extreme outliers (PE>80 or negative).
 
 OUTPUT: ONLY a JSON array of exactly 5 objects, no markdown.
 [{"ticker":"","reason":"PE-focused, max 12 words","emoji":"🤖"}]
