@@ -380,7 +380,10 @@ export default {
     // ─── AI Picks (3 markets/day, cache 24hr) ───
     if (url.pathname === '/api/picks' && (request.method === 'GET' || request.method === 'POST')) {
       try {
-        const cacheKey = 'picks:daily';
+        // Date-keyed cache: rotates automatically at midnight (UTC) so the picks
+        // always carry the current date instead of a stale "picks:daily" entry.
+        const date = new Date().toISOString().split('T')[0];
+        const cacheKey = `picks:${date}`;
         const cached = await kvGet(env, cacheKey);
         if (cached) return resp(cached);
 
@@ -402,9 +405,16 @@ export default {
         const setTop = allIntl.filter(q => q.ticker.endsWith('.BK')).sort((a, b) => (b.changePercent||0) - (a.changePercent||0)).slice(0, 5);
         const hkTop  = allIntl.filter(q => q.ticker.endsWith('.HK')).sort((a, b) => (b.changePercent||0) - (a.changePercent||0)).slice(0, 5);
 
-        const usText  = [usGainers, usActive].filter(Boolean).join('\n').substring(0, 1500);
-        const setText = setTop.map(q => `${q.ticker} ${q.name} price=${q.price} chg=${q.changePercent}%`).join('\n');
-        const hkText  = hkTop.map(q => `${q.ticker} ${q.name} price=${q.price} chg=${q.changePercent}%`).join('\n');
+        // US candidates = curated blue-chip pool (real Yahoo prices, matches SET/HK
+        // quality and guarantees live-price enrichment) + scraped gainers as extra
+        // momentum context. Previously US relied ONLY on scraped gainers, which skew
+        // toward speculative microcaps and rarely match the pool used for enrichment.
+        const quoteLine = (q) => `${q.ticker} ${q.name} price=${q.price} chg=${q.changePercent}%`;
+        const usPoolText = usTop.map(quoteLine).join('\n');
+        const usScrapeText = [usGainers, usActive].filter(Boolean).join('\n').substring(0, 1000);
+        const usText  = [usPoolText, usScrapeText].filter(Boolean).join('\n');
+        const setText = setTop.map(quoteLine).join('\n');
+        const hkText  = hkTop.map(quoteLine).join('\n');
 
         const prompt = `Pick exactly 5 stocks worth watching today — at least 1 from each market (US, SET, HKEX), distribute the remaining 2 picks to whichever markets have the most opportunity today.
 
@@ -431,8 +441,6 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
           callClaude(env.ANTHROPIC_API_KEY, MODEL_FAST, 'Return ONLY valid JSON array of exactly 5 items. No markdown.', prompt, 600),
           18000
         );
-
-        const date = new Date().toISOString().split('T')[0];
 
         if (picks && Array.isArray(picks) && picks.length > 0) {
           // Enrich with real-time price from Yahoo if available
@@ -461,7 +469,9 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
     // ─── AI Watchlist: AI-related stocks ranked by P/E + fundamentals ───
     if (url.pathname === '/api/watchlist' && (request.method === 'GET' || request.method === 'POST')) {
       try {
-        const cacheKey = 'watchlist:daily';
+        // Date-keyed cache: rotates daily so the watchlist always shows today's date.
+        const date = new Date().toISOString().split('T')[0];
+        const cacheKey = `watchlist:${date}`;
         const cached = await kvGet(env, cacheKey);
         if (cached) return resp(cached);
 
@@ -497,8 +507,6 @@ ${hkText || '0700.HK 9988.HK 1211.HK 2318.HK 3690.HK (use your knowledge)'}`;
 
         const candidates = enriched.filter(Boolean);
         if (candidates.length === 0) return resp({ picks: [], date: null });
-
-        const date = new Date().toISOString().split('T')[0];
 
         // Build compact summary for Claude
         const summary = candidates.map(c =>
